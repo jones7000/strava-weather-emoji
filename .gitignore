@@ -1,0 +1,29 @@
+# Go build files
+/bin/
+/build/
+
+# Go binary
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test binary, build, and cache files
+*.test
+*.out
+*.coverage
+
+# IDEs
+.idea/
+.vscode/
+
+# Log files
+*.log
+
+# Other
+other/
+
+# Config
+config.json
+!config.example.json

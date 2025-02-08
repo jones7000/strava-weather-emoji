@@ -1,0 +1,1 @@
+# Auto Strava Weather Emoji

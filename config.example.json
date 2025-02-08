@@ -1,0 +1,10 @@
+{
+    "clientId": "1117560",
+    "clientSecret": "",
+    "apiUrlBase": "https://www.strava.com/api/v3/",
+    "accessToken": "",
+    "refreshToken": "",
+    "expiresAt": 1733061018,
+    "webhookToken": "",
+    "weatherApiUrlBase": "https://api.open-meteo.com/v1/forecast"
+  }
