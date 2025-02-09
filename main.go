@@ -179,7 +179,7 @@ func RefreshToken(filename string) error {
 	return nil
 }
 
-func SendActivityUpdate(activityID string, activityName string, name string) error {
+func SendActivityUpdate(activityID string, activity ActivityResponse, name string, temp string) error {
 	// Access-Token nur erneuern, wenn nötig
 	err := RefreshToken(configFile)
 	if err != nil {
@@ -187,13 +187,19 @@ func SendActivityUpdate(activityID string, activityName string, name string) err
 	}
 
 	apiURL := config.APIUrlBase + "activities/" + activityID
-	newName := activityName + " " + name
+	newName := activity.Name + " " + name
+	newDescription := activity.Description
 
-	logMessage("Send activity %s update: %s, to %s", activityID, newName, apiURL)
+	if temp != "999" {
+		newDescription = activity.Description + fmt.Sprintf(" 🌡️ %s°C", temp)
+	}
+
+	logMessage("Send activity %s new name: %s, new description: %s", activityID, newName, newDescription)
 
 	// Request-Daten erstellen
 	updateRequest := ActivityResponse{
-		Name: newName,
+		Name:        newName,
+		Description: newDescription,
 	}
 
 	// Request-Body in JSON umwandeln
@@ -278,7 +284,7 @@ func fetchActivityData(activityID string) (ActivityResponse, error) {
 }
 
 func getWeatherEmojiAndTemp(lat float32, long float32, date string, hour int) (string, string, error) {
-	// API-URL zusammenbauen
+
 	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=weather_code,temperature_2m&start_date=%s&end_date=%s", config.WeatherApiUrlBase, lat, long, date, date)
 
 	// HTTP-Request ausführen
@@ -307,10 +313,12 @@ func getWeatherEmojiAndTemp(lat float32, long float32, date string, hour int) (s
 	}
 
 	weatherCode := 100 // default weather code
+	var temp float32 = 999
 
-	// check if hour is in array
+	// ---------------- weather code ----------------
+	// check if hour is in weatherCode array
 	if hour < 0 || hour >= len(weatherData.Hourly.WeatherCode) {
-		logMessage("No weather data for given date, using default - targetHour: %d, date: %s, url: %s", hour, date, url)
+		logMessage("No weather code for given date, using default - targetHour: %d, date: %s, url: %s", hour, date, url)
 
 	} else {
 		weatherCode = weatherData.Hourly.WeatherCode[hour]
@@ -323,10 +331,20 @@ func getWeatherEmojiAndTemp(lat float32, long float32, date string, hour int) (s
 		emoji = WeatherMap[100]
 	}
 
-	if weatherCode != 100 {
-		logMessage("GET Weather successful, hour: %d, date: %s, url: %s", hour, date, url)
+	// ---------------- weather code ----------------
+	// check if temp is in weatherCode array
+	if hour < 0 || hour >= len(weatherData.Hourly.Temperature) {
+		logMessage("No temperature for given date - targetHour: %d, date: %s, url: %s", hour, date, url)
+	} else {
+		temp = weatherData.Hourly.Temperature[hour]
 	}
-	return emoji, "", nil
+
+	temperature := fmt.Sprintf("%d", int(temp))
+
+	if weatherCode != 100 {
+		logMessage("GET weather successful, temp: %s, hour: %d, date: %s, url: %s", temperature, hour, date, url)
+	}
+	return emoji, temperature, nil
 }
 
 func transformDateTime(input string, elapsedTime int) (string, int, error) {
@@ -371,11 +389,11 @@ func updateActivity(activityID string) {
 	// get weather emoji based on activity date, hour
 	emoji, temp, err := getWeatherEmojiAndTemp(activity.StartLatLon[0], activity.StartLatLon[1], date, targetHour)
 	if err != nil {
-		logMessage("Error getWeatherEmojiAndTemp %v", err, temp)
+		logMessage("Error getWeatherEmojiAndTemp %v", err)
 		return
 	}
 	// send activity update to strava
-	err = SendActivityUpdate(activityID, activity.Name, emoji)
+	err = SendActivityUpdate(activityID, activity, emoji, temp)
 	if err != nil {
 		logMessage("Error getWeatherEmoji %v", err)
 		return
