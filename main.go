@@ -15,9 +15,8 @@ import (
 var config Config
 var configFile = "config.json"
 var (
-	logger    *log.Logger
-	logTarget string // "console" or "file"
-	logFile   *os.File
+	logger  *log.Logger
+	logFile *os.File
 )
 
 type Config struct {
@@ -35,14 +34,15 @@ type Config struct {
 }
 
 type WebhookCallback struct {
-	ObjectType string `json:"object_type"`
-	ObjectID   int    `json:"object_id"`
-	AspectType string `json:"aspect_type"`
-	OwnerID    int    `json:"owner_id"`
+	ObjectType string  `json:"object_type"`
+	ObjectID   int     `json:"object_id"`
+	AspectType string  `json:"aspect_type"`
+	OwnerID    float32 `json:"owner_id"`
 }
 
 type ActivityResponse struct {
 	Name           string    `json:"name"`
+	Type           string    `json:"type"`
 	Map            Map       `json:"map"`
 	StartDateLocal string    `json:"start_date_local"` //"start_date_local": "2025-02-03T16:56:12Z",
 	StartLatLon    []float32 `json:"start_latlng"`
@@ -101,6 +101,11 @@ var WeatherMap = map[int]string{ // https://open-meteo.com/ > weather codes
 	96:  "⛈🌨",     // Thunderstorm with slight hail
 	99:  "⛈🌨🌨",    // Thunderstorm with heavy hail
 	100: "🏃",      // unknown
+}
+
+var indoorActivities = []string{
+	"Crossfit", "Elliptical", "StairStepper", "VirtualRide",
+	"VirtualRun", "WeightTraining", "Workout", "Yoga",
 }
 
 func ReadConfig(filename string) error {
@@ -377,6 +382,19 @@ func updateActivity(activityID string) {
 	activity, err := fetchActivityData(activityID)
 	if err != nil {
 		logMessage("Error fetchActivityData: %v", err)
+		return
+	}
+
+	// check if indoor activitiy
+	for _, indoor := range indoorActivities {
+		if indoor == activity.Type {
+			logMessage("Indoor activity: %s type: %s, id: %s", activity.Name, activity.Type, activityID)
+			return
+		}
+	}
+
+	if len(activity.StartLatLon) == 0 {
+		logMessage("No Lat Lon available in activity: %s %s", activity.Name, activityID)
 		return
 	}
 
