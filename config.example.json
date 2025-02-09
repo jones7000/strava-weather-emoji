@@ -6,5 +6,7 @@
     "refreshToken": "",
     "expiresAt": 1733061018,
     "webhookToken": "",
-    "weatherApiUrlBase": "https://api.open-meteo.com/v1/forecast"
+    "weatherApiUrlBase": "https://api.open-meteo.com/v1/forecast",
+    "logTarget": "file", // file <> console
+    "logFile": "app.log"
   }

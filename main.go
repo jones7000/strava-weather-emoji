@@ -14,6 +14,11 @@ import (
 
 var config Config
 var configFile = "config.json"
+var (
+	logger    *log.Logger
+	logTarget string // "console" or "file"
+	logFile   *os.File
+)
 
 type Config struct {
 	ClientID          string `json:"clientId"`
@@ -24,6 +29,9 @@ type Config struct {
 	ExpiresAt         int64  `json:"expiresAt"`
 	WebhookToken      string `json:"webhookToken"`
 	WeatherApiUrlBase string `json:"weatherApiUrlBase"`
+	LogTarget         string `json:"logTarget"`
+	LogFile           string `json:"logFile"`
+	ServerPort        string `json:"serverPort"`
 }
 
 type WebhookCallback struct {
@@ -38,6 +46,8 @@ type ActivityResponse struct {
 	Map            Map       `json:"map"`
 	StartDateLocal string    `json:"start_date_local"` //"start_date_local": "2025-02-03T16:56:12Z",
 	StartLatLon    []float32 `json:"start_latlng"`
+	ElapsedTime    int       `json:"elapsed_time"`
+	Description    string    `json:"description"`
 }
 
 type Map struct {
@@ -55,8 +65,9 @@ type TokenResponse struct {
 
 type WeatherResponse struct {
 	Hourly struct {
-		Time        []string `json:"time"`
-		WeatherCode []int    `json:"weather_code"`
+		Time        []string  `json:"time"`
+		WeatherCode []int     `json:"weather_code"`
+		Temperature []float32 `json:"temperature_2m"`
 	} `json:"hourly"`
 }
 
@@ -120,10 +131,10 @@ func RefreshToken(filename string) error {
 	currentTime := time.Now().Unix()
 	if config.ExpiresAt > currentTime {
 		expirationTime := time.Unix(config.ExpiresAt, 0).Format(time.RFC3339)
-		log.Printf("Token is still valid. Expires at: %s", expirationTime)
+		logMessage("token is still valid. Expires at: %s", expirationTime)
 		return nil
 	}
-	fmt.Println("Refresh token.")
+	logMessage("refresh token.")
 
 	url := config.APIUrlBase + "oauth/token"
 
@@ -164,7 +175,7 @@ func RefreshToken(filename string) error {
 		return err
 	}
 
-	fmt.Println("Token successfully refreshed!")
+	logMessage("token successfully refreshed.")
 	return nil
 }
 
@@ -178,12 +189,12 @@ func SendActivityUpdate(activityID string, activityName string, name string) err
 	apiURL := config.APIUrlBase + "activities/" + activityID
 	newName := activityName + " " + name
 
+	logMessage("Send activity %s update: %s, to %s", activityID, newName, apiURL)
+
 	// Request-Daten erstellen
 	updateRequest := ActivityResponse{
 		Name: newName,
 	}
-
-	log.Printf("📡 PUT-Request an: %s", apiURL)
 
 	// Request-Body in JSON umwandeln
 	requestBody, err := json.Marshal(updateRequest)
@@ -218,7 +229,7 @@ func SendActivityUpdate(activityID string, activityName string, name string) err
 		return fmt.Errorf("Fehler: HTTP-Status %d, Antwort: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	log.Printf("✅ Aktivität erfolgreich aktualisiert: %s", newName)
+	logMessage("Activity %s successfully updated: %s", activityID, newName)
 	return nil
 }
 
@@ -229,8 +240,6 @@ func fetchActivityData(activityID string) (ActivityResponse, error) {
 	}
 
 	apiURL := config.APIUrlBase + "activities/" + activityID
-
-	log.Printf("🏃 GET Strava activity: %s", apiURL)
 
 	// HTTP-GET-Anfrage ausführen
 	req, err := http.NewRequest("GET", apiURL, nil)
@@ -263,75 +272,82 @@ func fetchActivityData(activityID string) (ActivityResponse, error) {
 		return ActivityResponse{}, fmt.Errorf("Error parsing response %v", err)
 	}
 
+	logMessage("GET strava activity successful: %s", apiURL)
+
 	return activity, nil
 }
 
-func getWeatherEmoji(lat float32, long float32, date string, targetHour string) (string, error) {
+func getWeatherEmojiAndTemp(lat float32, long float32, date string, hour int) (string, string, error) {
 	// API-URL zusammenbauen
-	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=weather_code&start_date=%s&end_date=%s", config.WeatherApiUrlBase, lat, long, date, date)
-	log.Println("📡 Weather API-Request: ", url)
+	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=weather_code,temperature_2m&start_date=%s&end_date=%s", config.WeatherApiUrlBase, lat, long, date, date)
 
 	// HTTP-Request ausführen
 	resp, err := http.Get(url)
 	if err != nil {
-		return "", fmt.Errorf("Fehler beim Abrufen der Wetterdaten: %v", err)
+		return "", "", fmt.Errorf("error GET weather data, url %s, %v", url, err)
 	}
 	defer resp.Body.Close()
 
 	// HTTP-Statuscode prüfen
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("❌ HTTP-Fehler: Statuscode %d", resp.StatusCode)
+		return "", "", fmt.Errorf("error GET weather data: http-statuscode: %d, url: %s", resp.StatusCode, url)
 	}
 
 	// API-Antwort einlesen
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("Fehler beim Lesen der API-Antwort: %v", err)
+		return "", "", fmt.Errorf("error reading weather api response: %v", err)
 	}
 
 	// JSON-Daten in die Struktur parsen
 	var weatherData WeatherResponse
 	err = json.Unmarshal(body, &weatherData)
 	if err != nil {
-		return "", fmt.Errorf("Fehler beim Parsen der JSON-Antwort: %v", err)
+		return "", "", fmt.Errorf("error parsing weather api response, url %s, %v", url, err)
 	}
 
-	// Versuche, die targetHour in einen Integer zu konvertieren
-	hour, err := strconv.Atoi(targetHour)
-	if err != nil {
-		return "", fmt.Errorf("Fehler beim Konvertieren der Zielstunde: %v", err)
-	}
+	weatherCode := 100 // default weather code
 
-	// Überprüfen, ob die Stunde im Array vorhanden ist
+	// check if hour is in array
 	if hour < 0 || hour >= len(weatherData.Hourly.WeatherCode) {
-		return "", fmt.Errorf("Keine Wetterdaten für die angegebene Stunde: %s", targetHour)
+		logMessage("No weather data for given date, using default - targetHour: %d, date: %s, url: %s", hour, date, url)
+
+	} else {
+		weatherCode = weatherData.Hourly.WeatherCode[hour]
 	}
 
-	weatherCode := weatherData.Hourly.WeatherCode[hour]
-	// Hole das Emoji oder den String für den Wettercode
+	// gather emoji for given weather code
 	emoji, exists := WeatherMap[weatherCode]
 	if !exists {
+		logMessage("No emoji found for weatherCode: %d, url: %s, using default emoji", weatherCode, url)
 		emoji = WeatherMap[100]
 	}
 
-	log.Printf("Gefundener Wettercode %d und Emoji %s", hour, emoji)
-
-	return emoji, nil
+	if weatherCode != 100 {
+		logMessage("GET Weather successful, hour: %d, date: %s, url: %s", hour, date, url)
+	}
+	return emoji, "", nil
 }
 
-func transformDateTime(input string) (string, string, error) {
-	// Das Eingabeformat für den Zeitstring definieren
+func transformDateTime(input string, elapsedTime int) (string, int, error) {
 	layout := "2006-01-02T15:04:05Z"
 
-	// Den Zeitstring parsen
 	t, err := time.Parse(layout, input)
 	if err != nil {
-		return "", "", fmt.Errorf("Fehler beim Parsen des Datums: %v", err)
+		return "", 0, fmt.Errorf("error parsing date: %s, %v", input, err)
 	}
 
-	// Das Datum extrahieren
 	date := t.Format("2006-01-02")
-	fullHour := t.Format("15")
+	fullHourStr := t.Format("15")
+
+	// add half of elapsedTime
+	fullHour, err := strconv.Atoi(fullHourStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("error converting string fullHourStr: %s, %v", fullHourStr, err)
+	}
+
+	// ergebnis wird abgeschnitten, nicht gerundet
+	fullHour = fullHour + (elapsedTime / 3600)
 
 	// Rückgabe des Datums und der vollen Stunde
 	return date, fullHour, nil
@@ -341,27 +357,27 @@ func updateActivity(activityID string) {
 	// getActivityMetaData
 	activity, err := fetchActivityData(activityID)
 	if err != nil {
-		log.Println("Error fetchActivityData:", err)
+		logMessage("Error fetchActivityData: %v", err)
 		return
 	}
 
 	// transform activity data
-	date, targetHour, err := transformDateTime(activity.StartDateLocal)
+	date, targetHour, err := transformDateTime(activity.StartDateLocal, activity.ElapsedTime)
 	if err != nil {
-		log.Println("Error transformPolylineToLatLong:", err)
+		logMessage("Error transformPolylineToLatLong: %v", err)
 		return
 	}
 
 	// get weather emoji based on activity date, hour
-	emoji, err := getWeatherEmoji(activity.StartLatLon[0], activity.StartLatLon[1], date, targetHour)
+	emoji, temp, err := getWeatherEmojiAndTemp(activity.StartLatLon[0], activity.StartLatLon[1], date, targetHour)
 	if err != nil {
-		log.Println("Error getWeatherEmoji", err)
+		logMessage("Error getWeatherEmojiAndTemp %v", err, temp)
 		return
 	}
 	// send activity update to strava
 	err = SendActivityUpdate(activityID, activity.Name, emoji)
 	if err != nil {
-		log.Println("Error getWeatherEmoji", err)
+		logMessage("Error getWeatherEmoji %v", err)
 		return
 	}
 }
@@ -375,12 +391,12 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 		challenge := r.URL.Query().Get("hub.challenge")
 
 		if mode == "subscribe" && token == config.WebhookToken {
-			log.Println("✅ WEBHOOK_VERIFIED")
+			logMessage("✅ WEBHOOK_VERIFIED")
 			response := map[string]string{"hub.challenge": challenge}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(response)
 		} else {
-			log.Println("❌ Verifizierung fehlgeschlagen")
+			logMessage("❌ Verifizierung fehlgeschlagen")
 			http.Error(w, "Forbidden", http.StatusForbidden)
 		}
 		return
@@ -394,7 +410,8 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("📩 Webhook erhalten: %+v\n", callback)
+		logMessage("-------------------------------------------")
+		logMessage("received new webhook: %+v", callback)
 
 		// Falls es sich um eine neue Aktivität handelt, rufe fetchActivityData auf
 		if callback.AspectType == "create" && callback.ObjectType == "activity" {
@@ -403,7 +420,6 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "Event empfangen")
 		return
 	}
 
@@ -411,19 +427,48 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Error", http.StatusMethodNotAllowed)
 }
 
-func main() {
-	log.Printf("Read config: %s...", configFile)
+func logMessage(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...) // Nachricht formatieren
+
+	switch config.LogTarget {
+	case "console":
+		fmt.Println(message)
+	case "file":
+		logger.Println(message)
+	default:
+		fmt.Println(message)
+	}
+}
+
+func init() {
 	err := ReadConfig(configFile)
 	if err != nil {
 		fmt.Println("Error reading JSON file:", err)
-		return
+		os.Exit(1)
 	}
+
+	log.Printf("Successful read config: %s.", configFile)
+
+	// Log-Datei öffnen oder erstellen
+	logFile, err = os.OpenFile(config.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		fmt.Printf("Error opening log file:  %s,%v", config.LogFile, err)
+		os.Exit(1)
+	}
+
+	// Logger initialisieren
+	logger = log.New(logFile, "", log.LstdFlags)
+
+	log.Println("Start Application")
+}
+
+func main() {
+	defer logFile.Close() // auto close file after end of program
 
 	http.HandleFunc("/webhook", WebhookHandler) // `/webhook` für GET (Verifikation) und POST (Events)
 
-	port := "8080"
-	log.Printf("🚀 Server läuft auf Port %s...", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	logMessage("server running on port %s...", config.ServerPort)
+	log.Fatal(http.ListenAndServe(":"+config.ServerPort, nil))
 
 }
 
@@ -449,7 +494,7 @@ curl -X POST "http://localhost:8080/webhook" \
   -H "Content-Type: application/json" \
   -d '{
     "object_type": "activity",
-    "object_id": 13564780272,
+    "object_id": 13579796478,
     "aspect_type": "create",
     "owner_id": 11111
   }'
