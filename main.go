@@ -179,7 +179,7 @@ func RefreshToken(filename string) error {
 	return nil
 }
 
-func SendActivityUpdate(activityID string, activity ActivityResponse, name string, temp string) error {
+func SendActivityUpdate(activityID string, activity ActivityResponse, emoji string, temp string) error {
 	// Access-Token nur erneuern, wenn nötig
 	err := RefreshToken(configFile)
 	if err != nil {
@@ -187,7 +187,7 @@ func SendActivityUpdate(activityID string, activity ActivityResponse, name strin
 	}
 
 	apiURL := config.APIUrlBase + "activities/" + activityID
-	newName := activity.Name + " " + name
+	newName := activity.Name + " " + emoji
 	newDescription := activity.Description
 
 	if temp != "999" {
@@ -283,9 +283,9 @@ func fetchActivityData(activityID string) (ActivityResponse, error) {
 	return activity, nil
 }
 
-func getWeatherEmojiAndTemp(lat float32, long float32, date string, hour int) (string, string, error) {
+func getWeatherEmojiAndTemp(activity ActivityResponse, date string, hour int) (string, string, error) {
 
-	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=weather_code,temperature_2m&start_date=%s&end_date=%s", config.WeatherApiUrlBase, lat, long, date, date)
+	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=weather_code,temperature_2m&start_date=%s&end_date=%s", config.WeatherApiUrlBase, activity.StartLatLon[0], activity.StartLatLon[1], date, date)
 
 	// HTTP-Request ausführen
 	resp, err := http.Get(url)
@@ -347,12 +347,11 @@ func getWeatherEmojiAndTemp(lat float32, long float32, date string, hour int) (s
 	return emoji, temperature, nil
 }
 
-func transformDateTime(input string, elapsedTime int) (string, int, error) {
-	layout := "2006-01-02T15:04:05Z"
+func transformDateTime(activity ActivityResponse) (string, int, error) {
 
-	t, err := time.Parse(layout, input)
+	t, err := time.Parse("2006-01-02T15:04:05Z", activity.StartDateLocal)
 	if err != nil {
-		return "", 0, fmt.Errorf("error parsing date: %s, %v", input, err)
+		return "", 0, fmt.Errorf("error parsing date: %s, %v", activity.StartDateLocal, err)
 	}
 
 	date := t.Format("2006-01-02")
@@ -365,7 +364,9 @@ func transformDateTime(input string, elapsedTime int) (string, int, error) {
 	}
 
 	// ergebnis wird abgeschnitten, nicht gerundet
-	fullHour = fullHour + (elapsedTime / 3600)
+	fullHour = fullHour + (activity.ElapsedTime / 3600)
+
+	logMessage("Using date: %s, calculated fullHour: %d", activity.StartDateLocal, fullHour)
 
 	// Rückgabe des Datums und der vollen Stunde
 	return date, fullHour, nil
@@ -380,14 +381,14 @@ func updateActivity(activityID string) {
 	}
 
 	// transform activity data
-	date, targetHour, err := transformDateTime(activity.StartDateLocal, activity.ElapsedTime)
+	date, targetHour, err := transformDateTime(activity)
 	if err != nil {
 		logMessage("Error transformPolylineToLatLong: %v", err)
 		return
 	}
 
 	// get weather emoji based on activity date, hour
-	emoji, temp, err := getWeatherEmojiAndTemp(activity.StartLatLon[0], activity.StartLatLon[1], date, targetHour)
+	emoji, temp, err := getWeatherEmojiAndTemp(activity, date, targetHour)
 	if err != nil {
 		logMessage("Error getWeatherEmojiAndTemp %v", err)
 		return
@@ -428,7 +429,7 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		logMessage("-------------------------------------------")
+		logMessage("-------------------------------------------------------------")
 		logMessage("received new webhook: %+v", callback)
 
 		// Falls es sich um eine neue Aktivität handelt, rufe fetchActivityData auf
@@ -465,7 +466,7 @@ func init() {
 		os.Exit(1)
 	}
 
-	log.Printf("Successful read config: %s.", configFile)
+	// log.Printf("Successful read config: %s.", configFile)
 
 	// Log-Datei öffnen oder erstellen
 	logFile, err = os.OpenFile(config.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
@@ -477,14 +478,14 @@ func init() {
 	// Logger initialisieren
 	logger = log.New(logFile, "", log.LstdFlags)
 
-	log.Println("Start Application")
+	// log.Println("Start Application")
 }
 
 func main() {
 	defer logFile.Close() // auto close file after end of program
 
 	http.HandleFunc("/webhook", WebhookHandler) // `/webhook` für GET (Verifikation) und POST (Events)
-
+	logMessage("-------------------------------------------------------------")
 	logMessage("server running on port %s...", config.ServerPort)
 	log.Fatal(http.ListenAndServe(":"+config.ServerPort, nil))
 
