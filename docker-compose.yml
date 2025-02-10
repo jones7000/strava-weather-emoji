@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    image: strava-weather-go:latest
+    volumes:
+      - ./config.json:/app/config.json
+      - ./app.log:/app/app.log
+    networks:
+      - app-network
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    command:
+      - "http"
+      - "--url"
+      - ${NGROK_URL}
+      - "app:8080"
+    depends_on:
+      - app
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

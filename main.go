@@ -428,12 +428,12 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 		challenge := r.URL.Query().Get("hub.challenge")
 
 		if mode == "subscribe" && token == config.WebhookToken {
-			logMessage("✅ WEBHOOK_VERIFIED")
+			logMessage("---> WEBHOOK VERIFIED <---")
 			response := map[string]string{"hub.challenge": challenge}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(response)
 		} else {
-			logMessage("❌ Verifizierung fehlgeschlagen")
+			logMessage("---> Verifizierung fehlgeschlagen <---")
 			http.Error(w, "Forbidden", http.StatusForbidden)
 		}
 		return
