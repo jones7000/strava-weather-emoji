@@ -474,6 +474,8 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 		if callback.AspectType == "create" && callback.ObjectType == "activity" {
 			activityID := strconv.Itoa(callback.ObjectID)
 			go updateActivity(activityID) // Asynchron ausführen, blockiert nicht den Webhook
+		} else {
+			logMessage("no action required")
 		}
 
 		w.WriteHeader(http.StatusOK)
