@@ -184,6 +184,19 @@ func RefreshToken(filename string) error {
 	return nil
 }
 
+func containsRunningActivity(activity string) bool {
+	var runningActivities = []string{
+		"Run", "TrailRun", "Hike",
+	}
+
+	for _, a := range runningActivities {
+		if a == activity {
+			return true
+		}
+	}
+	return false
+}
+
 func SendActivityUpdate(activityID string, activity ActivityResponse, emoji string, temp string) error {
 	// Access-Token nur erneuern, wenn nötig
 	err := RefreshToken(configFile)
@@ -193,13 +206,20 @@ func SendActivityUpdate(activityID string, activity ActivityResponse, emoji stri
 
 	apiURL := config.APIUrlBase + "activities/" + activityID
 	newName := activity.Name + " " + emoji
+	logMessage("Update name: %s", newName)
+
 	newDescription := activity.Description
 
-	if temp != "999" {
-		newDescription = activity.Description + fmt.Sprintf(" 🌡️ %s°C", temp)
+	var running = containsRunningActivity(activity.Type)
+
+	if temp != "999" && running {
+		newDescription = activity.Description + fmt.Sprintf("T: %s°C", temp)
+		logMessage("Update description: %s", newDescription)
+	} else {
+		logMessage("No description update, temp: %s, containsRunningActivity: %v", temp, running)
 	}
 
-	logMessage("Send activity %s new name: %s, new description: %s", activityID, newName, newDescription)
+	logMessage("Send activity id: %s", activityID)
 
 	// Request-Daten erstellen
 	updateRequest := ActivityResponse{
@@ -317,8 +337,8 @@ func getWeatherEmojiAndTemp(activity ActivityResponse, date string, hour int) (s
 		return "", "", fmt.Errorf("error parsing weather api response, url %s, %v", url, err)
 	}
 
-	weatherCode := 100 // default weather code
-	var temp float32 = 999
+	weatherCode := 100     // default weather code
+	var temp float32 = 999 // default temp
 
 	// ---------------- weather code ----------------
 	// check if hour is in weatherCode array
