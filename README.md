@@ -1,4 +1,4 @@
-# Auto Strava Weather Emoji
+# strava weather emoji
 Adds  weather emoji to title and temperature to description for each strava activity.
 
 * using ngrok to access local container
