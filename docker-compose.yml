@@ -7,6 +7,7 @@ services:
       - ./app.log:/app/app.log
     networks:
       - app-network
+    restart: unless-stopped
 
   ngrok:
     image: ngrok/ngrok:latest
@@ -21,6 +22,7 @@ services:
       - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
     networks:
       - app-network
+    restart: unless-stopped
 
 networks:
   app-network:

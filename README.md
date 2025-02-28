@@ -1,32 +1,54 @@
 # Auto Strava Weather Emoji
+Adds  weather emoji to title and temperature to description for each strava activity.
 
-### Image bauen und starten
+* using ngrok to access local container
 
-Image bauen:
+### how to build
+1) Add env variables for ngrok
 ```
-docker build -t strava-weather-go . 
+export NGROK_AUTHTOKEN=<TOKEN>
+export NGROK_URL=<URL>
 ```
-
+2) Build container
 ```
-docker-compose up --build # build sorgt dafür, dass das Image neu gebaut wird.
-```
-
-
-* Manuell starten mit:
-
-```
-docker run -d -p 8080:8080 --name go-app mein-go-app:latest
+docker-compose up --build
 ```
 
+# strava api
+* [Getting Started Auth](https://developers.strava.com/docs/getting-started/#account)
+* [Swagger Playground](https://developers.strava.com/playground/)
+* [Developer API Description and Datatypes](https://developers.strava.com/docs/reference/#api-Routes-getRouteById)
 
-* Image nur bauen:
+## strava webhook
+
+### test
+```sh
+curl -X POST <URL> \
+  -H 'Content-Type: application/json' \
+  -d '{
+      "aspect_type": "create",
+      "object_id": 9999999,
+      "object_type": "activity",
+      "owner_id": 9999999
+    }'
 
 ```
-docker-compose build
-```
 
-* Danach starten mit:
-
+### show
+```bash
+curl -G https://www.strava.com/api/v3/push_subscriptions \
+-d client_id=<ID> \
+-d client_secret=<SECRET> 
 ```
-docker-compose up -d
+### delete
+```sh
+curl -X DELETE https://www.strava.com/api/v3/push_subscriptions/[WebhookID]\?client_id=<ID>\&client_secret=<SECRET>
+```
+## add
+```sh
+curl -X POST https://www.strava.com/api/v3/push_subscriptions \ 
+-d client_id=<ID> \
+-d client_secret=<SECRET> \
+-d callback_url=<URL> \
+-d verify_token=<TOKEN>
 ```
