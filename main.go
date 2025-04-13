@@ -133,7 +133,7 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 func init() {
 	err := config.ReadConfig()
 	if err != nil {
-		fmt.Println("Error reading JSON file:", err)
+		fmt.Println("Error reading JSON file: ", err)
 		os.Exit(1)
 	}
 

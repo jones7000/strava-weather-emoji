@@ -16,17 +16,15 @@ var (
 func InitLogger(target, filePath string) error {
 	logTarget = target
 
-	// Ermitteln des Verzeichnisses des Hauptprogramms (main.go)
-	exePath, err := os.Executable()
+	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("could not get executable path: %v", err)
+		return fmt.Errorf("could not get current working directory: %v", err)
 	}
-	dir := filepath.Dir(exePath)
 
 	if filePath == "" {
-		filePath = filepath.Join(dir, "app.log")
+		filePath = filepath.Join(cwd, "app.log")
 	} else {
-		filePath = filepath.Join(dir, filePath)
+		filePath = filepath.Join(cwd, filePath)
 	}
 
 	if target == "file" {
