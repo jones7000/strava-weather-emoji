@@ -1,5 +1,5 @@
-# strava weather emoji
-Adds  weather emoji to title and temperature to description for each strava activity.
+# strava weather
+Adds weather info to strava activity, emoji to title and temperature to description
 
 * using ngrok to access local container
 
